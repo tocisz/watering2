@@ -86,6 +86,7 @@ struct empty_resp_t {
 ///////////////////////////////////////////////////////////////////
 
 void loop() {
+  buflen = VW_MAX_MESSAGE_LEN;
   if (vw_get_message(buf, &buflen)) // Non-blocking
   {
 
