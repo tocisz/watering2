@@ -49,41 +49,48 @@ void setup() {
 }
 
 const int send_delay = 200;
+const short header_length = 2;
 
 uint8_t buf[VW_MAX_MESSAGE_LEN];
 uint8_t buflen = VW_MAX_MESSAGE_LEN;
 
 ///////////// buffers for transmission //////////////////////////
 struct time_frame {
-  uint8_t id;
-  uint8_t type;
   uint32_t timestamp;
 } time_frame_req, time_frame_resp;
 
 struct analog_read_req_t {
-  uint8_t id;
-  uint8_t type;
   uint8_t pin;
 } analog_read_req;
 
 struct analog_read_resp_t {
-  uint8_t id;
-  uint8_t type;
   uint16_t value;
 } analog_read_resp;
 
 struct blink_req_t {
-  uint8_t id;
-  uint8_t type;
   uint8_t pin;
   uint16_t ms;
 } blink_req;
-
-struct empty_resp_t {
-  uint8_t id;
-  uint8_t type;
-} blink_resp;
 ///////////////////////////////////////////////////////////////////
+
+void get_data_from_buf(void *addr, size_t s) {
+  memcpy(addr, buf+header_length, s);
+}
+
+void send_response(void *addr, size_t s) {
+  delay(send_delay);
+  // buf[0] = id;
+  buf[1] = 0;
+  memcpy(buf+header_length, addr, s);
+  vw_send(buf, s+header_length);
+}
+
+void send_empty_response() {
+  delay(send_delay);
+  // buf[0] = id;
+  buf[1] = 0;
+  vw_send(buf, header_length);
+}
 
 void loop() {
   buflen = VW_MAX_MESSAGE_LEN;
@@ -94,7 +101,7 @@ void loop() {
     uint8_t type = buf[1];
 
     if (type == 1) { // time_req
-      memcpy(&time_frame_req, buf, sizeof(time_frame));
+      get_data_from_buf(&time_frame_req, sizeof(time_frame));
       Serial.print("Got timestamp ");
       Serial.println(time_frame_req.timestamp);
 
@@ -102,14 +109,11 @@ void loop() {
         set_unix_time(time_frame_req.timestamp);
 
       // Send response
-      delay(send_delay);
-      time_frame_resp.id = id;
-      time_frame_resp.type = 0;
       time_frame_resp.timestamp = get_unix_time();
-      vw_send((uint8_t *)&time_frame_resp, sizeof(time_frame));
+      send_response(&time_frame_resp, sizeof(time_frame));
 
     } else if (type == 2) { // analog read
-      memcpy(&analog_read_req, buf, sizeof(analog_read_req_t));
+      get_data_from_buf(&analog_read_req, sizeof(analog_read_req_t));
       Serial.print("Reading analog pin ");
       Serial.println(analog_read_req.pin);
       digitalWrite(ANALOG_ENABLE, 1);
@@ -118,14 +122,11 @@ void loop() {
       digitalWrite(ANALOG_ENABLE, 0);
 
       // Send response
-      delay(send_delay);
-      analog_read_resp.id = id;
-      analog_read_resp.type = 0;
       analog_read_resp.value = value;
-      vw_send((uint8_t *)&analog_read_resp, sizeof(analog_read_resp_t));
+      send_response(&analog_read_resp, sizeof(analog_read_resp_t));
       
     } else if (type == 3) { // blink
-      memcpy(&blink_req, buf, sizeof(blink_req_t));
+      get_data_from_buf(&blink_req, sizeof(blink_req_t));
       Serial.print("Blinking pin ");
       Serial.print(blink_req.pin);
       Serial.print(" for ");
@@ -133,11 +134,9 @@ void loop() {
       // Blink after sanding reply to prevent timeout...
 
       // Send response
-      delay(send_delay);
-      blink_resp.id = id;
-      blink_resp.type = 0;
-      vw_send((uint8_t *)&blink_resp, sizeof(empty_resp_t));
+      send_empty_response();
 
+      // TODO: delay even further, we can miss retransmission by waiting here
       // ...blink now.
       Serial.print(blink_req.pin);
       Serial.println(" ON");
