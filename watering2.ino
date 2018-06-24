@@ -49,7 +49,8 @@ void setup() {
 }
 
 const int send_delay = 200;
-const short header_length = 2;
+const uint8_t header_length = 2;
+const uint8_t measure_iterations = 100;
 
 uint8_t buf[VW_MAX_MESSAGE_LEN];
 uint8_t buflen = VW_MAX_MESSAGE_LEN;
@@ -65,6 +66,7 @@ struct analog_read_req_t {
 
 struct analog_read_resp_t {
   uint16_t value;
+  uint16_t sigma;
 } analog_read_resp;
 
 struct blink_req_t {
@@ -90,6 +92,29 @@ void send_empty_response() {
   // buf[0] = id;
   buf[1] = 0;
   vw_send(buf, header_length);
+}
+
+uint16_t sqrt32(uint32_t n)
+{
+  uint16_t c = 0x8000;
+  uint32_t g = 0x8000;
+
+  for (;;) {
+
+    if (g*g > n)
+    {
+      g ^= c;
+    }
+
+    c >>= 1;
+
+    if (c == 0)
+    {
+      return g;
+    }
+
+    g |= c;
+  }
 }
 
 void loop() {
@@ -118,11 +143,22 @@ void loop() {
       Serial.println(analog_read_req.pin);
       digitalWrite(ANALOG_ENABLE, 1);
       delay(100);
-      uint16_t value = analogRead(PC0+analog_read_req.pin);
+
+      uint32_t avg = 0;
+      uint32_t square_avg = 0; // 10*2+7 bits shoud be enough
+      for (uint8_t i = 0; i < measure_iterations; ++i) {
+        uint32_t value = analogRead(PC0+analog_read_req.pin);
+        avg += value;
+        square_avg += value*value;
+      }
       digitalWrite(ANALOG_ENABLE, 0);
+      avg /= measure_iterations;
+      square_avg /= measure_iterations;
+      uint16_t sigma = sqrt32(square_avg - avg*avg);
 
       // Send response
-      analog_read_resp.value = value;
+      analog_read_resp.value = avg;
+      analog_read_resp.sigma = sigma;
       send_response(&analog_read_resp, sizeof(analog_read_resp_t));
       
     } else if (type == 3) { // blink
