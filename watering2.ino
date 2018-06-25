@@ -52,8 +52,14 @@ const int send_delay = 200;
 const uint8_t header_length = 2;
 const uint8_t measure_iterations = 100;
 
+#define VW_MAX_MESSAGE_LEN 16
+
 uint8_t buf[VW_MAX_MESSAGE_LEN];
 uint8_t buflen = VW_MAX_MESSAGE_LEN;
+
+uint8_t outbuf[VW_MAX_MESSAGE_LEN];
+
+uint16_t id = -1; // last message id
 
 ///////////// buffers for transmission //////////////////////////
 struct time_frame {
@@ -83,17 +89,23 @@ void get_data_from_buf(void *addr, size_t s) {
 #define SEND(s) send_response(&s, sizeof(s))
 void send_response(void *addr, size_t s) {
   delay(send_delay);
-  // buf[0] = id;
-  buf[1] = 0;
-  memcpy(buf+header_length, addr, s);
-  vw_send(buf, s+header_length);
+  outbuf[0] = buf[0];
+  outbuf[1] = 0;
+  memcpy(outbuf+header_length, addr, s);
+  vw_send(outbuf, s+header_length);
 }
 
 void send_empty_response() {
   delay(send_delay);
-  // buf[0] = id;
-  buf[1] = 0;
-  vw_send(buf, header_length);
+  outbuf[0] = buf[0];
+  outbuf[1] = 0;
+  vw_send(outbuf, header_length);
+}
+
+void retransmit() {
+  Serial.println("Retransmitting");
+  delay(send_delay);
+  vw_send(outbuf, header_length);
 }
 
 uint16_t sqrt32(uint32_t n)
@@ -120,75 +132,77 @@ uint16_t sqrt32(uint32_t n)
 }
 
 void loop() {
+
   buflen = VW_MAX_MESSAGE_LEN;
   if (vw_get_message(buf, &buflen)) // Non-blocking
   {
 
-    uint8_t id = buf[0];
-    uint8_t type = buf[1];
+    if (buf[0] == id) { // the same request id
 
-    if (type == 1) { // time_req
-      // get_data_from_buf(&time_frame_req, sizeof(time_frame));
-      RECV(time_frame_req);
-      Serial.print("Got timestamp ");
-      Serial.println(time_frame_req.timestamp);
+      retransmit();
 
-      if (time_frame_req.timestamp > 0)
-        set_unix_time(time_frame_req.timestamp);
+    } else {
 
-      // Send response
-      time_frame_resp.timestamp = get_unix_time();
-      //send_response(&time_frame_resp, sizeof(time_frame));
-      SEND(time_frame_resp);
-
-    } else if (type == 2) { // analog read
-      // get_data_from_buf(&analog_read_req, sizeof(analog_read_req_t));
-      RECV(analog_read_req);
-      Serial.print("Reading analog pin ");
-      Serial.println(analog_read_req.pin);
-      digitalWrite(ANALOG_ENABLE, 1);
-      delay(100);
-
-      uint32_t avg = 0;
-      uint32_t square_avg = 0; // 10*2+7 bits shoud be enough
-      for (uint8_t i = 0; i < measure_iterations; ++i) {
-        uint32_t value = analogRead(PC0+analog_read_req.pin);
-        avg += value;
-        square_avg += value*value;
+      id = buf[0];
+      uint8_t type = buf[1];
+      if (type == 1) { // time_req
+        RECV(time_frame_req);
+        Serial.print("Got timestamp ");
+        Serial.println(time_frame_req.timestamp);
+  
+        if (time_frame_req.timestamp > 0)
+          set_unix_time(time_frame_req.timestamp);
+  
+        // Send response
+        time_frame_resp.timestamp = get_unix_time();
+        SEND(time_frame_resp);
+  
+      } else if (type == 2) { // analog read
+        RECV(analog_read_req);
+        Serial.print("Reading analog pin ");
+        Serial.println(analog_read_req.pin);
+        digitalWrite(ANALOG_ENABLE, 1);
+        delay(100);
+  
+        uint32_t avg = 0;
+        uint32_t square_avg = 0; // 10*2+7 bits shoud be enough
+        for (uint8_t i = 0; i < measure_iterations; ++i) {
+          uint32_t value = analogRead(PC0+analog_read_req.pin);
+          avg += value;
+          square_avg += value*value;
+        }
+        digitalWrite(ANALOG_ENABLE, 0);
+        avg /= measure_iterations;
+        square_avg /= measure_iterations;
+        uint16_t sigma = sqrt32(square_avg - avg*avg);
+  
+        // Send response
+        analog_read_resp.value = avg;
+        analog_read_resp.sigma = sigma;
+        SEND(analog_read_resp);
+        
+      } else if (type == 3) { // blink
+        RECV(blink_req);
+        Serial.print("Blinking pin ");
+        Serial.print(blink_req.pin);
+        Serial.print(" for ");
+        Serial.println(blink_req.ms);
+        // Blink after sanding reply to prevent timeout...
+  
+        // Send response
+        send_empty_response();
+  
+        // TODO: delay even further, we can miss retransmission by waiting here
+        // ...blink now.
+        Serial.print(blink_req.pin);
+        Serial.println(" ON");
+        digitalWrite(blink_req.pin, 1);
+        delay(blink_req.ms);
+        digitalWrite(blink_req.pin, 0);
+        Serial.print(blink_req.pin);
+        Serial.println(" OFF");
+        
       }
-      digitalWrite(ANALOG_ENABLE, 0);
-      avg /= measure_iterations;
-      square_avg /= measure_iterations;
-      uint16_t sigma = sqrt32(square_avg - avg*avg);
-
-      // Send response
-      analog_read_resp.value = avg;
-      analog_read_resp.sigma = sigma;
-      //send_response(&analog_read_resp, sizeof(analog_read_resp_t));
-      SEND(analog_read_resp);
-      
-    } else if (type == 3) { // blink
-      // get_data_from_buf(&blink_req, sizeof(blink_req_t));
-      RECV(blink_req);
-      Serial.print("Blinking pin ");
-      Serial.print(blink_req.pin);
-      Serial.print(" for ");
-      Serial.println(blink_req.ms);
-      // Blink after sanding reply to prevent timeout...
-
-      // Send response
-      send_empty_response();
-
-      // TODO: delay even further, we can miss retransmission by waiting here
-      // ...blink now.
-      Serial.print(blink_req.pin);
-      Serial.println(" ON");
-      digitalWrite(blink_req.pin, 1);
-      delay(blink_req.ms);
-      digitalWrite(blink_req.pin, 0);
-      Serial.print(blink_req.pin);
-      Serial.println(" OFF");
-      
     }
 
   }
