@@ -75,10 +75,12 @@ struct blink_req_t {
 } blink_req;
 ///////////////////////////////////////////////////////////////////
 
+#define RECV(s) get_data_from_buf(&s, sizeof(s))
 void get_data_from_buf(void *addr, size_t s) {
   memcpy(addr, buf+header_length, s);
 }
 
+#define SEND(s) send_response(&s, sizeof(s))
 void send_response(void *addr, size_t s) {
   delay(send_delay);
   // buf[0] = id;
@@ -126,7 +128,8 @@ void loop() {
     uint8_t type = buf[1];
 
     if (type == 1) { // time_req
-      get_data_from_buf(&time_frame_req, sizeof(time_frame));
+      // get_data_from_buf(&time_frame_req, sizeof(time_frame));
+      RECV(time_frame_req);
       Serial.print("Got timestamp ");
       Serial.println(time_frame_req.timestamp);
 
@@ -135,10 +138,12 @@ void loop() {
 
       // Send response
       time_frame_resp.timestamp = get_unix_time();
-      send_response(&time_frame_resp, sizeof(time_frame));
+      //send_response(&time_frame_resp, sizeof(time_frame));
+      SEND(time_frame_resp);
 
     } else if (type == 2) { // analog read
-      get_data_from_buf(&analog_read_req, sizeof(analog_read_req_t));
+      // get_data_from_buf(&analog_read_req, sizeof(analog_read_req_t));
+      RECV(analog_read_req);
       Serial.print("Reading analog pin ");
       Serial.println(analog_read_req.pin);
       digitalWrite(ANALOG_ENABLE, 1);
@@ -159,10 +164,12 @@ void loop() {
       // Send response
       analog_read_resp.value = avg;
       analog_read_resp.sigma = sigma;
-      send_response(&analog_read_resp, sizeof(analog_read_resp_t));
+      //send_response(&analog_read_resp, sizeof(analog_read_resp_t));
+      SEND(analog_read_resp);
       
     } else if (type == 3) { // blink
-      get_data_from_buf(&blink_req, sizeof(blink_req_t));
+      // get_data_from_buf(&blink_req, sizeof(blink_req_t));
+      RECV(blink_req);
       Serial.print("Blinking pin ");
       Serial.print(blink_req.pin);
       Serial.print(" for ");
