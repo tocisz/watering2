@@ -60,6 +60,7 @@ uint8_t buflen = VW_MAX_MESSAGE_LEN;
 uint8_t outbuf[VW_MAX_MESSAGE_LEN];
 
 uint16_t id = -1; // last message id
+uint8_t last_message_length;
 
 ///////////// buffers for transmission //////////////////////////
 struct time_frame {
@@ -92,20 +93,22 @@ void send_response(void *addr, size_t s) {
   outbuf[0] = buf[0];
   outbuf[1] = 0;
   memcpy(outbuf+header_length, addr, s);
-  vw_send(outbuf, s+header_length);
+  last_message_length = s+header_length;
+  vw_send(outbuf, last_message_length);
 }
 
 void send_empty_response() {
   delay(send_delay);
   outbuf[0] = buf[0];
   outbuf[1] = 0;
-  vw_send(outbuf, header_length);
+  last_message_length = header_length;
+  vw_send(outbuf, last_message_length);
 }
 
 void retransmit() {
   Serial.println("Retransmitting");
   delay(send_delay);
-  vw_send(outbuf, header_length);
+  vw_send(outbuf, last_message_length);
 }
 
 uint16_t sqrt32(uint32_t n)
